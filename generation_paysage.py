@@ -405,62 +405,41 @@ def add_perlin_detail(height_map, octaves=3, persistence=0.5, scale=2, seed=None
     
     return result
 
-def generate_river_path(height_map, grid_size):
+def generate_river_path(height_map):
     """Generate a river path from the highest point to sea level using gradient descent."""
-    # Find the highest point
     start_i, start_j = np.unravel_index(np.argmax(height_map), height_map.shape)
     
     rows, cols = height_map.shape
-    
-    # Create a river mask (initially empty)
     river_mask = np.zeros_like(height_map)
-    
-    # Width of the river (number of cells)
     river_width = 1
-    
-    # Carve the river using gradient descent
     current_i, current_j = start_i, start_j
     river_mask[current_i, current_j] = 1
-    
-    # Follow the gradient downhill until we reach the sea level
-    max_steps = rows * cols  # Maximum number of steps to prevent infinite loops
+    max_steps = rows * cols
     step_count = 0
     
     while height_map[current_i, current_j] > 0 and step_count < max_steps:
-        # Get the 8 neighboring cells
         neighbors = []
         for di in [-1, 0, 1]:
             for dj in [-1, 0, 1]:
                 if di == 0 and dj == 0:
-                    continue  # Skip the current cell
-                
+                    continue
                 ni, nj = current_i + di, current_j + dj
-                
-                # Check if neighbor is within bounds
                 if 0 <= ni < rows and 0 <= nj < cols:
                     neighbors.append((ni, nj, height_map[ni, nj]))
         
-        # Find the neighbor with the lowest height
         valid_neighbors = [(ni, nj, h) for ni, nj, h in neighbors if h < height_map[current_i, current_j]]
         
         if not valid_neighbors:
-            # No lower neighbors found, we're stuck in a local minimum
-            # Try to find the lowest neighbor regardless of comparison to current
             if neighbors:
                 next_i, next_j, _ = min(neighbors, key=lambda x: x[2])
-                # Force the height to be lower to continue the river
                 height_map[next_i, next_j] = height_map[current_i, current_j] - 0.01
             else:
-                # No valid neighbors at all, break
                 break
         else:
-            # Move to the lowest neighbor
             next_i, next_j, _ = min(valid_neighbors, key=lambda x: x[2])
         
-        # Mark the path as river
         current_i, current_j = next_i, next_j
         
-        # Mark the main river cell and its vicinity (to make river wider)
         for di in range(-river_width, river_width + 1):
             for dj in range(-river_width, river_width + 1):
                 ri, rj = current_i + di, current_j + dj
@@ -469,10 +448,7 @@ def generate_river_path(height_map, grid_size):
         
         step_count += 1
     
-    # Apply gaussian blur with smaller sigma to create a more natural-looking river
     river_mask = gaussian_filter(river_mask, sigma=0.3)
-    
-    # Apply a threshold to make the river more defined
     river_mask = (river_mask > 0.3).astype(float)
     
     return river_mask
@@ -499,7 +475,7 @@ def generate_model(seed=42):
     height_map = (height_map - height_map.min()) / (height_map.max() - height_map.min())
     
     # Generate river path
-    river_mask = generate_river_path(height_map, GRID_SIZE)
+    river_mask = generate_river_path(height_map)
     
     # Create the terrain model with river
     land_with_river = create_terrain_from_heightmap(height_map, river_mask, GRID_SIZE, HEIGHT_LIMIT)
