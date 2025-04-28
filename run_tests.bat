@@ -1,1 +1,2 @@
 python tri_hybride_test.py
+python foresterie_test.py
