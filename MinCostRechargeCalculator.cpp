@@ -5,6 +5,8 @@
 #include <algorithm> // for std::max
 
 // Nom(s) étudiant(s) / Name(s) of student(s):
+// Yorguin José Mantilla Ramos
+// Matricule: 20253616
 
 // ce fichier contient les definitions des methodes de la classe MinCostRechargeCalculator
 // this file contains the definitions of the methods of the MinCostRechargeCalculator class

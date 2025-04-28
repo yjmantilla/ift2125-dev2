@@ -1,6 +1,8 @@
 #include <vector>
 
 // Nom(s) étudiant(s) / Name(s) of student(s):
+// Yorguin José Mantilla Ramos
+// Matricule: 20253616
 
 // ce fichier contient les declarations des methodes de la classe MaxToysCalculator
 // peut être modifié si vous voulez ajouter d'autres méthodes à la classe
