@@ -264,7 +264,7 @@ def gdatav4(x, y, v, xq, yq):
 
 #####################################################################
 
-def create_terrain_from_heightmap(heightmap, waterfall_mask, grid_size, height_limit, text_mask=None):
+def create_paysage_from_heightmap(heightmap, waterfall_mask, grid_size, height_limit, text_mask=None):
     """Convert height map to OpenSCAD polyhedron."""
     terrain_parts = []
     
@@ -496,14 +496,14 @@ def generate_model(seed=42):
     waterfall_mask = generate_waterfall_path(height_map)
     
     # Create the terrain model with waterfall
-    land_with_waterfall = create_terrain_from_heightmap(height_map, waterfall_mask, GRID_SIZE, HEIGHT_LIMIT)
+    paysage = create_paysage_from_heightmap(height_map, waterfall_mask, GRID_SIZE, HEIGHT_LIMIT)
     
     
     # differences are really slow... and unions create kind of a shading issue in openscad
     # so we generate a single solid based on heightmap and masks
 
     # Combine everything
-    model = land_with_waterfall
+    model = paysage
 
     
     return model
