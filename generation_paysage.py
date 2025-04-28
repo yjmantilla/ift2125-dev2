@@ -57,16 +57,17 @@ def generate_perlin_noise_2d(shape, res, seed=None):
     if seed is not None:
         np.random.seed(seed)
 
-    delta = (res[0] / shape[0], res[1] / shape[1])
-    d = (shape[0] // res[0], shape[1] // res[1])
+    # Ensure res is integer
+    res_x = int(res[0])
+    res_y = int(res[1])
 
     # Generate random gradient vectors
-    angles = 2 * np.pi * np.random.rand(res[0]+1, res[1]+1)
+    angles = 2 * np.pi * np.random.rand(res_x+1, res_y+1)
     gradients = np.stack((np.cos(angles), np.sin(angles)), axis=2)
 
     # Generate coordinate grid
-    xs = np.linspace(0, res[0], shape[0], endpoint=False)
-    ys = np.linspace(0, res[1], shape[1], endpoint=False)
+    xs = np.linspace(0, res_x, shape[0], endpoint=False)
+    ys = np.linspace(0, res_y, shape[1], endpoint=False)
     x, y = np.meshgrid(xs, ys, indexing='ij')
 
     noise = perlin(x, y, gradients)
@@ -80,11 +81,11 @@ def generate_perlin_noise_2d(shape, res, seed=None):
 
 # Biharmonic Spline interpolation
 
-def mergesimpts(data,tols,mode='average'):
+def mergesimpts(data, tols, mode='average'):
     data_ = data.copy()[np.argsort(data[:,0])]
     newdata = []
     tols_ = np.array(tols)
-    idxs_ready =[]
+    idxs_ready = []
     point = 0
     for point in range(data_.shape[0]):
         if point in idxs_ready:
@@ -94,114 +95,253 @@ def mergesimpts(data,tols,mode='average'):
             similar_pts = np.array(list(set(similar_pts[0].tolist())- set(idxs_ready)))
             idxs_ready += similar_pts.tolist()
             if mode == 'average':
-                exemplar = np.mean(data_[similar_pts],axis=0)
+                exemplar = np.mean(data_[similar_pts], axis=0)
             else:
-                exemplar = data_[similar_pts].copy()[0] # first
+                exemplar = data_[similar_pts].copy()[0]  # first
             newdata.append(exemplar)
     return np.array(newdata)
 
-def mergepoints2D(x,y,v):
+def mergepoints2D(x, y, v):
     # Sort x and y so duplicate points can be averaged
 
     # Need x,y and z to be column vectors
-
     sz = x.size
     x = x.copy()
     y = y.copy()
     v = v.copy()
-    x = np.reshape(x,(sz),order='F');
-    y = np.reshape(y,(sz),order='F');
-    v = np.reshape(v,(sz),order='F');
+    x = np.reshape(x, (sz), order='F')
+    y = np.reshape(y, (sz), order='F')
+    v = np.reshape(v, (sz), order='F')
 
-    myepsx = np.spacing(0.5 * (np.max(x) - np.min(x)))**(1/3);
-    myepsy = np.spacing(0.5 * (np.max(y) - np.min(y)))**(1/3);
-    # % look for x, y points that are indentical (within a tolerance)
-    # % average out the values for these points
-    if np.all(np.isreal(v)):
-        data = np.stack((y,x,v), axis=-1)
-        yxv = mergesimpts(data,[myepsy,myepsx,np.inf],'average')
-        x = yxv[:,1]
-        y = yxv[:,0]
-        v = yxv[:,2]
-    else:
-        #% if z is imaginary split out the real and imaginary parts
-        data = np.stack((y,x,np.real(v),np.imag(v)), axis=-1)
-        yxv = mergesimpts(data,[myepsy,myepsx,np.inf,np.inf],'average')
-        x = yxv[:,1]
-        y = yxv[:,0]
-        #% re-combine the real and imaginary parts
-        v = yxv[:,2]+1j*yxv[:,3]
-    #% give a warning if some of the points were duplicates (and averaged out)
-    if sz > x.shape[0]:
-        print('MATLAB:griddata:DuplicateDataPoints')
-    return x,y,v
-
-def gdatav4(x,y,v,xq,yq):
-    """
-    %GDATAV4 MATLAB 4 GRIDDATA interpolation
-
-    %   Reference:  David T. Sandwell, Biharmonic spline
-    %   interpolation of GEOS-3 and SEASAT altimeter
-    %   data, Geophysical Research Letters, 2, 139-142,
-    %   1987.  Describes interpolation using value or
-    %   gradient of value in any dimension.
-    """
-    x, y, v = mergepoints2D(x,y,v);
-
-    xy = x + 1j*y
-    xy = np.squeeze(xy)
-    #% Determine distances between points
+    myepsx = np.spacing(0.5 * (np.max(x) - np.min(x)))**(1/3)
+    myepsy = np.spacing(0.5 * (np.max(y) - np.min(y)))**(1/3)
     
-    # d = np.zeros((xy.shape[0],xy.shape[0]))
-    # for i in range(xy.shape[0]):
-    #     for j in range(xy.shape[0]):
-    #         d[i,j]=np.abs(xy[i]-xy[j])
+    # Look for x, y points that are identical (within a tolerance)
+    # Average out the values for these points
+    if np.all(np.isreal(v)):
+        data = np.stack((y, x, v), axis=-1)
+        yxv = mergesimpts(data, [myepsy, myepsx, np.inf], 'average')
+        x = yxv[:, 1]
+        y = yxv[:, 0]
+        v = yxv[:, 2]
+    else:
+        # If z is imaginary split out the real and imaginary parts
+        data = np.stack((y, x, np.real(v), np.imag(v)), axis=-1)
+        yxv = mergesimpts(data, [myepsy, myepsx, np.inf, np.inf], 'average')
+        x = yxv[:, 1]
+        y = yxv[:, 0]
+        # Re-combine the real and imaginary parts
+        v = yxv[:, 2] + 1j * yxv[:, 3]
+    
+    # Give a warning if some of the points were duplicates (and averaged out)
+    if sz > x.shape[0]:
+        print('Warning: Duplicate data points detected and averaged')
+    
+    return x, y, v
 
+def gdatav4(x, y, v, xq, yq):
+    """
+    GDATAV4 MATLAB 4 GRIDDATA interpolation
+
+    Reference: David T. Sandwell, Biharmonic spline
+    interpolation of GEOS-3 and SEASAT altimeter
+    data, Geophysical Research Letters, 2, 139-142,
+    1987. Describes interpolation using value or
+    gradient of value in any dimension.
+    """
+    x, y, v = mergepoints2D(x, y, v)
+
+    xy = x + 1j * y
+    xy = np.squeeze(xy)
+    
+    # Determine distances between points
     d = np.abs(np.subtract.outer(xy, xy))
-    # % Determine weights for interpolation
-    g = np.square(d) * (np.log(d)-1) #% Green's function.
-    # % Fixup value of Green's function along diagonal
+    
+    # Determine weights for interpolation
+    # Fix log(0) issue by adding small epsilon to distances
+    epsilon = 1e-10
+    d_safe = np.maximum(d, epsilon)
+    g = np.square(d_safe) * (np.log(d_safe) - 1)  # Green's function
+    
+    # Fix value of Green's function along diagonal
     np.fill_diagonal(g, 0)
-    weights = np.linalg.lstsq(g, v)[0]
+    
+    # Use a more stable solver with explicit regularization
+    weights = np.linalg.lstsq(g, v, rcond=1e-10)[0]
 
-    (m,n) = xq.shape
-    vq = np.zeros(xq.shape);
-    #xy = np.tranpose(xy);
+    (m, n) = xq.shape
+    vq = np.zeros(xq.shape)
 
-    # % Evaluate at requested points (xq,yq).  Loop to save memory.
+    # Evaluate at requested points (xq, yq)
     for i in range(m):
         for j in range(n):
-            d = np.abs(xq[i,j] + 1j*yq[i,j] - xy);
-            g = np.square(d) * (np.log(d)-1);#   % Green's function.
-            #% Value of Green's function at zero
-            g[np.where(np.isclose(d,0))] = 0;
-            vq[i,j] = (np.expand_dims(g,axis=0) @ np.expand_dims(weights,axis=1))[0][0]
-    return xq,yq,vq
-
+            d = np.abs(xq[i, j] + 1j * yq[i, j] - xy)
+            # Fix log(0) issue
+            d_safe = np.maximum(d, epsilon)
+            g = np.square(d_safe) * (np.log(d_safe) - 1)  # Green's function
+            # Value of Green's function at zero
+            g[np.where(np.isclose(d, 0))] = 0
+            vq[i, j] = (np.expand_dims(g, axis=0) @ np.expand_dims(weights, axis=1))[0][0]
+    
+    return xq, yq, vq
 
 #####################################################################
 
-def create_ocean_base(size_mm):
+def create_ocean_base(size_mm, thickness=2):
     """Creates the ocean base plate."""
-    thickness = 2  # thickness of the ocean plate
     ocean = cube([size_mm, size_mm, thickness])
-    return color([0, 0, 1])(ocean)  # RGB: blue
+    return color([0, 0.5, 0.8])(ocean)  # RGB: blue
+
+def create_terrain_from_heightmap(heightmap, grid_size, height_limit):
+    """Convert height map to OpenSCAD polyhedron."""
+    terrain_parts = []
+    
+    # Get dimensions of the heightmap
+    rows, cols = heightmap.shape
+    
+    # Calculate cell size
+    cell_size = grid_size / (cols - 1)
+    
+    # Create polygons for each cell in the height map
+    for i in range(rows - 1):
+        for j in range(cols - 1):
+            # Calculate the coordinates for this cell
+            x1 = j * cell_size
+            y1 = i * cell_size
+            x2 = (j + 1) * cell_size
+            y2 = (i + 1) * cell_size
+            
+            z1 = heightmap[i, j] * height_limit
+            z2 = heightmap[i, j+1] * height_limit
+            z3 = heightmap[i+1, j+1] * height_limit
+            z4 = heightmap[i+1, j] * height_limit
+            
+            # Skip if all heights are zero (underwater)
+            if z1 <= 0 and z2 <= 0 and z3 <= 0 and z4 <= 0:
+                continue
+                
+            # Create a small cube for positive height values
+            if z1 > 0:
+                # Color based on height (green to brown to white)
+                h_ratio = z1 / height_limit
+                if h_ratio < 0.3:  # Low elevation: greenish
+                    color_val = [0.2, 0.6, 0.2]
+                elif h_ratio < 0.7:  # Medium elevation: brownish
+                    color_val = [0.6, 0.4, 0.2]
+                else:  # High elevation: white/gray (snow)
+                    color_val = [0.8, 0.8, 0.8]
+                
+                terrain_parts.append(
+                    translate([x1, y1, 0])(
+                        color(color_val)(
+                            cube([cell_size, cell_size, max(0.1, z1)])
+                        )
+                    )
+                )
+    
+    return union()(*terrain_parts)
+
+def generate_control_points(num_points, grid_size, rng):
+    """Generate random control points for the terrain."""
+    # Generate points more likely to be in the center
+    x = rng.normal(loc=grid_size/2, scale=grid_size/4, size=num_points)
+    y = rng.normal(loc=grid_size/2, scale=grid_size/4, size=num_points)
+    
+    # Clip to ensure within bounds
+    x = np.clip(x, 0, grid_size)
+    y = np.clip(y, 0, grid_size)
+    
+    # Generate height values (higher in center)
+    v = np.zeros_like(x)
+    for i in range(num_points):
+        # Distance from center
+        dist = np.sqrt((x[i] - grid_size/2)**2 + (y[i] - grid_size/2)**2)
+        dist_ratio = dist / (grid_size/2)
+        
+        # Points closer to center have higher probability of being high
+        if dist_ratio < 0.5 and rng.random() < 0.8:
+            # Central island points
+            v[i] = rng.uniform(0.5, 1.0)
+        elif dist_ratio < 0.7 and rng.random() < 0.4:
+            # Medium distance points
+            v[i] = rng.uniform(0.2, 0.6)
+        else:
+            # Outer points are mostly underwater
+            v[i] = rng.uniform(-0.2, 0.1)
+    
+    return x, y, v
+
+def add_perlin_detail(height_map, octaves=3, persistence=0.5, scale=2, seed=None):
+    """Add Perlin noise detail to the height map."""
+    shape = height_map.shape
+    
+    # Generate base noise - ensure scale is integer
+    scale_int = int(scale)
+    noise = generate_perlin_noise_2d(shape, (scale_int, scale_int), seed)
+    
+    # Add octaves of noise
+    for i in range(1, octaves):
+        weight = persistence ** i
+        scale_octave = int(scale_int * (2**i))
+        noise_octave = generate_perlin_noise_2d(shape, (scale_octave, scale_octave), seed)
+        noise = noise + weight * noise_octave
+    
+    # Normalize noise
+    noise = (noise - noise.min()) / (noise.max() - noise.min())
+    
+    # Mix with the original height map (more effect on higher elevations)
+    detail_factor = 0.2  # Amount of detail to add
+    
+    # Apply detail with more effect on land than water
+    mask = height_map > 0  # Land mask
+    result = height_map.copy()
+    
+    # Add detail to land
+    result[mask] = height_map[mask] * (1.0 + detail_factor * (noise[mask] - 0.5))
+    
+    # Add minimal detail to underwater areas
+    result[~mask] = height_map[~mask] + 0.02 * (noise[~mask] - 0.5)
+    
+    # Ensure values stay in reasonable range
+    result = np.clip(result, -0.2, 1.0)
+    
+    return result
 
 def generate_model(seed=42):
-
     rng = np.random.default_rng(seed)
-
-    # Start with the ocean
+    
+    # Grid for interpolation and final height map
+    xs = np.linspace(0, GRID_SIZE, MATRIX_SIZE)
+    ys = np.linspace(0, GRID_SIZE, MATRIX_SIZE)
+    xq, yq = np.meshgrid(xs, ys)
+    
+    # Generate control points for the terrain
+    num_control_points = 60  # Adjust for more/less detail
+    x, y, v = generate_control_points(num_control_points, GRID_SIZE, rng)
+    
+    # Generate initial height map using biharmonic spline interpolation
+    _, _, height_map = gdatav4(x, y, v, xq, yq)
+    
+    # Add noise detail to the height map
+    height_map = add_perlin_detail(height_map, seed=seed)
+    
+    # Normalize height map
+    height_map = (height_map - height_map.min()) / (height_map.max() - height_map.min())
+    
+    # Create the terrain model
+    land = create_terrain_from_heightmap(height_map, GRID_SIZE, HEIGHT_LIMIT)
+    
+    # Create the ocean base
     ocean = create_ocean_base(GRID_SIZE)
-
-    # Placeholder for island (we'll add next)
-    island = up(2)(sphere(r=10))  # just for testing, a simple island
-
+    
     # Combine everything
     model = union()(
         ocean,
+        land
     )
+    
     return model
 
 if __name__ == '__main__':
-    scad_render_to_file(generate_model(), filepath='model.scad', file_header='$fn = 100;')
+    scad_render_to_file(generate_model(seed=0), filepath='terrain_model.scad', file_header='$fn = 100;')
+    print("Model generated successfully!")
