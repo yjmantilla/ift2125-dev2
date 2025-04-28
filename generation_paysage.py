@@ -9,6 +9,83 @@ GRID_SIZE = 50  # How wide the ocean plate is (50mm to 80mm)
 HEIGHT_LIMIT = 40  # Max height in mm
 MATRIX_SIZE = 50  # Height map resolution (30-100)
 
+
+def generate_initials(initials):
+    txt = linear_extrude(height=1)(text(initials, size=5))
+    mirrored_txt = mirror([0,1,0])(txt)  # Mirror across Y axis to correct
+    return translate([5, 5, -1])(mirrored_txt)
+
+###### Gaussian Filter ###############################
+
+import numpy as np
+
+def convolve2d(image, kernel):
+    """
+    Perform a 2D convolution manually using numpy.
+    
+    Parameters:
+    - image: 2D numpy array (input)
+    - kernel: 2D numpy array (filter)
+    
+    Returns:
+    - convolved 2D numpy array
+    """
+    image_h, image_w = image.shape
+    kernel_h, kernel_w = kernel.shape
+
+    # Flip the kernel (convolution flips the filter)
+    kernel = np.flipud(np.fliplr(kernel))
+
+    # Pad the image with zeros so output size matches input
+    pad_h = kernel_h // 2
+    pad_w = kernel_w // 2
+
+    padded_image = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='reflect')  # 'reflect' is nice for boundaries
+
+    # Output array
+    output = np.zeros_like(image)
+
+    # Perform convolution
+    for i in range(image_h):
+        for j in range(image_w):
+            region = padded_image[i:i+kernel_h, j:j+kernel_w]
+            output[i, j] = np.sum(region * kernel)
+
+    return output
+
+
+def gaussian_kernel(size, sigma):
+    """
+    Generates a (size x size) Gaussian kernel with standard deviation sigma.
+    """
+    ax = np.arange(-size // 2 + 1., size // 2 + 1.)
+    xx, yy = np.meshgrid(ax, ax)
+    kernel = np.exp(-(xx**2 + yy**2) / (2. * sigma**2))
+    kernel = kernel / np.sum(kernel)
+    return kernel
+
+def gaussian_filter(image, sigma, truncate=4.0):
+    """
+    Apply a gaussian filter manually using numpy.
+
+    Parameters:
+    - image: 2D numpy array
+    - sigma: standard deviation of Gaussian
+    - truncate: how many sigmas to include (default 4.0)
+    """
+
+    # Kernel size is 2*truncate*sigma rounded up to nearest odd integer
+    radius = int(truncate * sigma + 0.5)
+    size = 2 * radius + 1
+
+    kernel = gaussian_kernel(size, sigma)
+
+    # Apply convolution
+    smoothed = convolve2d(image, kernel)
+
+    return smoothed
+
+
 # Perlin noise #######################################
 def fade(t):
     # Fade function as defined by Ken Perlin
@@ -192,9 +269,10 @@ def create_ocean_base(size_mm, thickness=2):
     ocean = cube([size_mm, size_mm, thickness])
     return color([0, 0.5, 0.8])(ocean)  # RGB: blue
 
-def create_terrain_from_heightmap(heightmap, grid_size, height_limit):
+def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit):
     """Convert height map to OpenSCAD polyhedron."""
     terrain_parts = []
+    river_parts = []
     
     # Get dimensions of the heightmap
     rows, cols = heightmap.shape
@@ -208,20 +286,35 @@ def create_terrain_from_heightmap(heightmap, grid_size, height_limit):
             # Calculate the coordinates for this cell
             x1 = j * cell_size
             y1 = i * cell_size
-            x2 = (j + 1) * cell_size
-            y2 = (i + 1) * cell_size
             
             z1 = heightmap[i, j] * height_limit
             z2 = heightmap[i, j+1] * height_limit
             z3 = heightmap[i+1, j+1] * height_limit
             z4 = heightmap[i+1, j] * height_limit
             
+            # Check if this is part of the river
+            is_river = (river_mask[i, j] > 0 or 
+                       river_mask[i, j+1] > 0 or 
+                       river_mask[i+1, j+1] > 0 or 
+                       river_mask[i+1, j] > 0)
+            
             # Skip if all heights are zero (underwater)
             if z1 <= 0 and z2 <= 0 and z3 <= 0 and z4 <= 0:
                 continue
+            
+            # For river parts, create a blue cube slightly above the terrain
+            if is_river and z1 > 0:
+                river_depth = 0.5  # How deep to carve the river
+                river_height = max(0.1, z1 - river_depth)  # River is slightly below terrain
                 
-            # Create a small cube for positive height values
-            if z1 > 0:
+                river_parts.append(
+                    translate([x1, y1, 0])(
+                        color([0, 0.4, 0.8])(  # Blue for river
+                            cube([cell_size, cell_size, river_height])
+                        )
+                    )
+                )
+            elif z1 > 0:  # Regular terrain (non-river)
                 # Color based on height (green to brown to white)
                 h_ratio = z1 / height_limit
                 if h_ratio < 0.3:  # Low elevation: greenish
@@ -239,7 +332,9 @@ def create_terrain_from_heightmap(heightmap, grid_size, height_limit):
                     )
                 )
     
-    return union()(*terrain_parts)
+    # Combine terrain and river parts
+    all_parts = terrain_parts + river_parts
+    return union()(*all_parts)
 
 def generate_control_points(num_points, grid_size, rng):
     """Generate random control points for the terrain."""
@@ -307,6 +402,79 @@ def add_perlin_detail(height_map, octaves=3, persistence=0.5, scale=2, seed=None
     
     return result
 
+def generate_river_path(height_map, grid_size):
+    """Generate a river path from the highest point to sea level using gradient descent."""
+    # Smooth the height map to get better gradients
+    smoothed_height = height_map # seems better to use the original height map
+    # gaussian_filter(height_map, sigma=1.0)
+
+    # Find the highest point
+    start_i, start_j = np.unravel_index(np.argmax(smoothed_height), smoothed_height.shape)
+    
+    rows, cols = height_map.shape
+    
+    # Create a river mask (initially empty)
+    river_mask = np.zeros_like(height_map)
+    
+    # Width of the river (number of cells)
+    river_width = 1
+    
+    # Carve the river using gradient descent
+    current_i, current_j = start_i, start_j
+    river_mask[current_i, current_j] = 1
+    
+    # Follow the gradient downhill until we reach the sea level
+    max_steps = rows * cols  # Maximum number of steps to prevent infinite loops
+    step_count = 0
+    
+    while height_map[current_i, current_j] > 0 and step_count < max_steps:
+        # Get the 8 neighboring cells
+        neighbors = []
+        for di in [-1, 0, 1]:
+            for dj in [-1, 0, 1]:
+                if di == 0 and dj == 0:
+                    continue  # Skip the current cell
+                
+                ni, nj = current_i + di, current_j + dj
+                
+                # Check if neighbor is within bounds
+                if 0 <= ni < rows and 0 <= nj < cols:
+                    neighbors.append((ni, nj, smoothed_height[ni, nj]))
+        
+        # Find the neighbor with the lowest height
+        valid_neighbors = [(ni, nj, h) for ni, nj, h in neighbors if h < smoothed_height[current_i, current_j]]
+        
+        if not valid_neighbors:
+            # No lower neighbors found, we're stuck in a local minimum
+            # Try to find the lowest neighbor regardless of comparison to current
+            if neighbors:
+                next_i, next_j, _ = min(neighbors, key=lambda x: x[2])
+                # Force the height to be lower to continue the river
+                smoothed_height[next_i, next_j] = smoothed_height[current_i, current_j] - 0.01
+            else:
+                # No valid neighbors at all, break
+                break
+        else:
+            # Move to the lowest neighbor
+            next_i, next_j, _ = min(valid_neighbors, key=lambda x: x[2])
+        
+        # Mark the path as river
+        current_i, current_j = next_i, next_j
+        
+        # # Mark the main river cell and its vicinity (to make river wider)
+        # for di in range(-river_width, river_width + 1):
+        #     for dj in range(-river_width, river_width + 1):
+        #         ri, rj = current_i + di, current_j + dj
+        #         if 0 <= ri < rows and 0 <= rj < cols:
+        #             river_mask[ri, rj] = 1
+        
+        step_count += 1
+    
+    # Apply gaussian blur to create a more natural-looking river
+    river_mask = gaussian_filter(river_mask, sigma=0.5)
+    
+    return river_mask
+
 def generate_model(seed=42):
     rng = np.random.default_rng(seed)
     
@@ -328,8 +496,11 @@ def generate_model(seed=42):
     # Normalize height map
     height_map = (height_map - height_map.min()) / (height_map.max() - height_map.min())
     
-    # Create the terrain model
-    land = create_terrain_from_heightmap(height_map, GRID_SIZE, HEIGHT_LIMIT)
+    # Generate river path
+    river_mask = generate_river_path(height_map, GRID_SIZE)
+    
+    # Create the terrain model with river
+    land_with_river = create_terrain_from_heightmap(height_map, river_mask, GRID_SIZE, HEIGHT_LIMIT)
     
     # Create the ocean base
     ocean = create_ocean_base(GRID_SIZE)
@@ -337,11 +508,15 @@ def generate_model(seed=42):
     # Combine everything
     model = union()(
         ocean,
-        land
+        land_with_river,
+        generate_initials('YJMR IFT2125')
     )
     
     return model
 
 if __name__ == '__main__':
-    scad_render_to_file(generate_model(seed=42), filepath='terrain_model.scad', file_header='$fn = 100;')
-    print("Model generated successfully!")
+    try:
+        scad_render_to_file(generate_model(seed=42), filepath='terrain_model.scad', file_header='$fn = 100;')
+        print("Model generated successfully with river!")
+    except Exception as e:
+        print(f"Error generating model: {str(e)}")
