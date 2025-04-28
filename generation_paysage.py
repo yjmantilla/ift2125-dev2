@@ -269,7 +269,7 @@ def create_ocean_base(size_mm, thickness=2):
     ocean = cube([size_mm, size_mm, thickness])
     return color([0, 0.5, 0.8])(ocean)  # RGB: blue
 
-def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit):
+def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit, text_mask=None):
     """Convert height map to OpenSCAD polyhedron."""
     terrain_parts = []
     
@@ -297,12 +297,24 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
             # Alternative. Check if this is part of the river
             #is_river = river_mask[i, j] > 0.5 and z1 > 0  # Only consider as river if above water level
 
+            # Check if this cell is masked by text
+            is_text = text_mask is not None and text_mask[i, j] > 0.5
+
             if z1 <= 0:
                 # Fill underwater regions with ocean cubes
                 terrain_parts.append(
                     translate([x1, y1, 0])(
                         color([0, 0.5, 0.8])(  # Same blue as ocean
                             cube([cell_size, cell_size, ocean_level])
+                        )
+                    )
+                )
+            elif is_text:
+                # Cells where text mask is active become yellow
+                terrain_parts.append(
+                    translate([x1, y1, 0])(
+                        color([1.0, 1.0, 0.0])(  # Yellow
+                            cube([cell_size, cell_size, max(0.1, z1)])
                         )
                     )
                 )
@@ -464,7 +476,7 @@ def generate_model(seed=42):
     xq, yq = np.meshgrid(xs, ys)
     
     # Generate control points for the terrain
-    num_control_points = 60  # Adjust for more/less detail
+    num_control_points = 15  # Adjust for more/less detail
     # nice ones with 15 with seed 137
     # 60 with seed 42
 
@@ -486,24 +498,19 @@ def generate_model(seed=42):
     # Create the terrain model with river
     land_with_river = create_terrain_from_heightmap(height_map, river_mask, GRID_SIZE, HEIGHT_LIMIT)
     
-    # Create the ocean base
-    ocean = create_ocean_base(GRID_SIZE, thickness=2)
     
-    # differences are really slow...
+    # differences are really slow... and unions create kind of a shading issue in openscad
+    # so we generate a single solid based on heightmap and masks
 
     # Combine everything
-    model = union()(
-        #ocean,
-        land_with_river,
-        #generate_initials('YJMR IFT2125')
-    )
+    model = land_with_river
 
     
     return model
 
 if __name__ == '__main__':
     try:
-        scad_render_to_file(generate_model(seed=42), filepath='terrain_model.scad', file_header='$fn = 100;')
+        scad_render_to_file(generate_model(seed=137), filepath='terrain_model.scad', file_header='$fn = 100;')
         print("Model generated successfully with river!")
     except Exception as e:
         print(f"Error generating model: {str(e)}")
