@@ -264,11 +264,6 @@ def gdatav4(x, y, v, xq, yq):
 
 #####################################################################
 
-def create_ocean_base(size_mm, thickness=2):
-    """Creates the ocean base plate."""
-    ocean = cube([size_mm, size_mm, thickness])
-    return color([0, 0.5, 0.8])(ocean)  # RGB: blue
-
 def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit, text_mask=None):
     """Convert height map to OpenSCAD polyhedron."""
     terrain_parts = []
@@ -280,7 +275,12 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
     cell_size = grid_size / (cols - 1)
     
     river_depth = 0.5  # How deep to carve the river
-    ocean_level = heightmap[np.where(heightmap > 0)].min() # Ocean level based on the lowest point in the heightmap
+    #make everything not empty at least 0.1mm high
+    ocean_level = 0.02  # Ocean level (height of the ocean base)
+    min_level = 1.2*ocean_level  # Minimum height for the terrain (to avoid floating parts)
+    not_empty_indexes = heightmap > 0
+    heightmap[not_empty_indexes] = np.maximum(heightmap[not_empty_indexes], min_level)  # Set minimum height to ocean level
+
 
     # Create polygons for each cell in the height map
     for i in range(rows - 1):
@@ -305,7 +305,7 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
                 terrain_parts.append(
                     translate([x1, y1, 0])(
                         color([0, 0.5, 0.8])(  # Same blue as ocean
-                            cube([cell_size, cell_size, ocean_level])
+                            cube([cell_size, cell_size, ocean_level*height_limit])
                         )
                     )
                 )
@@ -314,7 +314,7 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
                 terrain_parts.append(
                     translate([x1, y1, 0])(
                         color([1.0, 1.0, 0.0])(  # Yellow
-                            cube([cell_size, cell_size, max(0.1, z1)])
+                            cube([cell_size, cell_size, max(ocean_level*height_limit, z1)])
                         )
                     )
                 )
@@ -343,7 +343,7 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
                 terrain_parts.append(
                     translate([x1, y1, 0])(
                         color(color_val)(
-                            cube([cell_size, cell_size, max(0.1, z1)])
+                            cube([cell_size, cell_size, max(ocean_level*height_limit, z1)])
                         )
                     )
                 )
