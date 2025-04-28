@@ -11,7 +11,7 @@ MATRIX_SIZE = 50  # Height map resolution (30-100)
 
 
 def generate_initials(initials):
-    txt = linear_extrude(height=1)(text(initials, size=5))
+    txt = linear_extrude(height=0.5)(text(initials, size=5))
     mirrored_txt = mirror([0,1,0])(txt)  # Mirror across Y axis to correct
     return translate([3, 6, 0])(mirrored_txt)
 
@@ -298,6 +298,9 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
                        river_mask[i+1, j+1] > 0 or 
                        river_mask[i+1, j] > 0)
             
+            # Alternative. Check if this is part of the river
+            #is_river = river_mask[i, j] > 0.5 and z1 > 0  # Only consider as river if above water level
+            
             # Skip if all heights are zero (underwater)
             if z1 <= 0 and z2 <= 0 and z3 <= 0 and z4 <= 0:
                 continue
@@ -404,12 +407,8 @@ def add_perlin_detail(height_map, octaves=3, persistence=0.5, scale=2, seed=None
 
 def generate_river_path(height_map, grid_size):
     """Generate a river path from the highest point to sea level using gradient descent."""
-    # Smooth the height map to get better gradients
-    smoothed_height = height_map # seems better to use the original height map
-    # gaussian_filter(height_map, sigma=1.0)
-
     # Find the highest point
-    start_i, start_j = np.unravel_index(np.argmax(smoothed_height), smoothed_height.shape)
+    start_i, start_j = np.unravel_index(np.argmax(height_map), height_map.shape)
     
     rows, cols = height_map.shape
     
@@ -439,10 +438,10 @@ def generate_river_path(height_map, grid_size):
                 
                 # Check if neighbor is within bounds
                 if 0 <= ni < rows and 0 <= nj < cols:
-                    neighbors.append((ni, nj, smoothed_height[ni, nj]))
+                    neighbors.append((ni, nj, height_map[ni, nj]))
         
         # Find the neighbor with the lowest height
-        valid_neighbors = [(ni, nj, h) for ni, nj, h in neighbors if h < smoothed_height[current_i, current_j]]
+        valid_neighbors = [(ni, nj, h) for ni, nj, h in neighbors if h < height_map[current_i, current_j]]
         
         if not valid_neighbors:
             # No lower neighbors found, we're stuck in a local minimum
@@ -450,7 +449,7 @@ def generate_river_path(height_map, grid_size):
             if neighbors:
                 next_i, next_j, _ = min(neighbors, key=lambda x: x[2])
                 # Force the height to be lower to continue the river
-                smoothed_height[next_i, next_j] = smoothed_height[current_i, current_j] - 0.01
+                height_map[next_i, next_j] = height_map[current_i, current_j] - 0.01
             else:
                 # No valid neighbors at all, break
                 break
@@ -461,17 +460,20 @@ def generate_river_path(height_map, grid_size):
         # Mark the path as river
         current_i, current_j = next_i, next_j
         
-        # # Mark the main river cell and its vicinity (to make river wider)
-        # for di in range(-river_width, river_width + 1):
-        #     for dj in range(-river_width, river_width + 1):
-        #         ri, rj = current_i + di, current_j + dj
-        #         if 0 <= ri < rows and 0 <= rj < cols:
-        #             river_mask[ri, rj] = 1
+        # Mark the main river cell and its vicinity (to make river wider)
+        for di in range(-river_width, river_width + 1):
+            for dj in range(-river_width, river_width + 1):
+                ri, rj = current_i + di, current_j + dj
+                if 0 <= ri < rows and 0 <= rj < cols:
+                    river_mask[ri, rj] = 1
         
         step_count += 1
     
-    # Apply gaussian blur to create a more natural-looking river
-    river_mask = gaussian_filter(river_mask, sigma=0.5)
+    # Apply gaussian blur with smaller sigma to create a more natural-looking river
+    river_mask = gaussian_filter(river_mask, sigma=0.3)
+    
+    # Apply a threshold to make the river more defined
+    river_mask = (river_mask > 0.3).astype(float)
     
     return river_mask
 
@@ -510,7 +512,9 @@ def generate_model(seed=42):
         ocean,
         land_with_river,
         generate_initials('YJMR IFT2125'),
+
     )
+
     
     return model
 
