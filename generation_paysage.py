@@ -499,7 +499,8 @@ def generate_model(seed=42):
     paysage = create_paysage_from_heightmap(height_map, waterfall_mask, GRID_SIZE, HEIGHT_LIMIT)
     
     
-    # differences are really slow... and unions create kind of a shading issue in openscad
+    # differences are really slow... and unions create kind of a shading issue in openscad, i guess because
+    # of the many many faces created by the union of all the cubes
     # so we generate a single solid based on heightmap and masks
 
     # Combine everything
