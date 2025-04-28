@@ -7,6 +7,31 @@ import sys
 # Space for auxilary functions :
 
 
+def lis(array,start,end,memo):
+    for i in range(start,end):
+        #range(0,n):
+        #range(len(array)-1,-1,-1):
+        next_options = list(range(i+2, len(array))) #+2 to skip adjacent elements
+        results =[]
+
+        if next_options:
+            for subproblem in next_options:
+                if subproblem in memo:
+                    results.append(memo[subproblem])
+                else:
+                    results.append(lis(array,subproblem,end,memo))
+        else:
+            results.append({'gain':array[i],'next_node':None})
+        memo[start] = max(results, key=lambda x: x['gain'])
+        return memo[i]
+
+
+DEBUG = True
+
+if DEBUG:
+    forest = [3,5,11,9,4]
+    cost = 2
+    lis(forest,0,len(forest),{})
 
 # Fonction à compléter / function to complete:
 def solve(cost, forest) :
