@@ -5,7 +5,7 @@ import numpy as np
 import os
 
 # Parameters
-GRID_SIZE = 50  # How wide the ocean plate is (50mm to 80mm)
+GRID_SIZE = 80  # How wide the ocean plate is (50mm to 80mm)
 HEIGHT_LIMIT = 40  # Max height in mm
 MATRIX_SIZE = 50  # Height map resolution (30-100)
 
@@ -353,7 +353,7 @@ def create_paysage_from_heightmap(heightmap, waterfall_mask, grid_size, height_l
     return union()(*all_parts)
 
 
-def generate_control_points(num_points, grid_size, rng):
+def generate_control_points(num_points, grid_size, rng,kind='central_island'):
     """Generate random control points for the terrain."""
     # Generate points more likely to be in the center
     x = rng.normal(loc=grid_size/2, scale=grid_size/4, size=num_points)
@@ -363,23 +363,48 @@ def generate_control_points(num_points, grid_size, rng):
     x = np.clip(x, 0, grid_size)
     y = np.clip(y, 0, grid_size)
     
+    # This is the most important part of the generation, as it defines the height of the terrain
     # Generate height values (higher in center)
     v = np.zeros_like(x)
-    for i in range(num_points):
-        # Distance from center
-        dist = np.sqrt((x[i] - grid_size/2)**2 + (y[i] - grid_size/2)**2)
-        dist_ratio = dist / (grid_size/2)
-        
-        # Points closer to center have higher probability of being high
-        if dist_ratio < 0.5 and rng.random() < 0.8:
-            # Central island points
-            v[i] = rng.uniform(0.5, 1.0)
-        elif dist_ratio < 0.7 and rng.random() < 0.4:
-            # Medium distance points
-            v[i] = rng.uniform(0.2, 0.6)
-        else:
-            # Outer points are mostly underwater
-            v[i] = rng.uniform(-0.2, 0.1)
+    if kind == 'central_island':
+        for i in range(num_points):
+            # Distance from center
+            dist = np.sqrt((x[i] - grid_size/2)**2 + (y[i] - grid_size/2)**2)
+            dist_ratio = dist / (grid_size/2)
+            
+            # Points closer to center have higher probability of being high
+            if dist_ratio < 0.5 and rng.random() < 0.8:
+                # Central island points
+                v[i] = rng.uniform(0.5, 1.0)
+            elif dist_ratio < 0.7 and rng.random() < 0.4:
+                # Medium distance points
+                v[i] = rng.uniform(0.2, 0.6)
+            else:
+                # Outer points are mostly underwater
+                v[i] = rng.uniform(-0.2, 0.1)
+    if kind == 'decentralized':
+        # place centers of small islands randomly in the grid
+        num_islands = rng.integers(2, 3)
+        size_islands = rng.uniform(0.001, 0.003)  # Size of islands relative to grid size
+
+        for i in range(num_islands):
+            # Random center for the island
+            center_x = rng.uniform(0, grid_size)
+            center_y = rng.uniform(0, grid_size)
+
+            # Random height for the island
+            center_height = rng.uniform(0.2, 0.6)
+            
+            # Apply same logic as above but centered around the random point
+            for j in range(num_points):
+                dist = np.sqrt((x[j] - center_x)**2 + (y[j] - center_y)**2)
+                dist_ratio = dist / (size_islands*grid_size/2)
+                if dist_ratio < 0.5 and rng.random() < 0.8:
+                    # Central island points
+                    v[j] = center_height * rng.uniform(0.1, 0.2)
+                else:
+                    # Outer points are mostly underwater
+                    v[j] = rng.uniform(-0.2, 0.1)
     
     return x, y, v
 
@@ -467,7 +492,7 @@ def generate_waterfall_path(height_map):
     
     return waterfall_mask
 
-def generate_model(seed=42):
+def generate_model(seed=42,num_control_points=60,kind='central_island'):
     rng = np.random.default_rng(seed)
     
     # Grid for interpolation and final height map
@@ -476,12 +501,12 @@ def generate_model(seed=42):
     xq, yq = np.meshgrid(xs, ys)
     
     # Generate control points for the terrain
-    num_control_points = 15  # Adjust for more/less detail
+    #num_control_points = 15  # Adjust for more/less detail
     # nice ones with 15 with seed 137
     # 60 with seed 42
 
 
-    x, y, v = generate_control_points(num_control_points, GRID_SIZE, rng)
+    x, y, v = generate_control_points(num_control_points, GRID_SIZE, rng, kind=kind)
     
     # Generate initial height map using biharmonic spline interpolation
     _, _, height_map = gdatav4(x, y, v, xq, yq)
@@ -511,7 +536,36 @@ def generate_model(seed=42):
 
 if __name__ == '__main__':
     try:
-        scad_render_to_file(generate_model(seed=137), filepath='terrain_model.scad', file_header='$fn = 100;')
+        params=[
+            (42, 60, 'central_island'),
+            (137, 15, 'central_island'),
+            (42, 60, 'decentralized'),
+            (137, 15, 'decentralized')
+        ]
+        for seed, num_control_points, kind in params:
+            # Generate the model with the specified parameters
+            model = generate_model(seed=seed, num_control_points=num_control_points, kind=kind)
+            
+            # Save the model to a file
+            filename = f'paysage_{seed}_{num_control_points}_{kind}.scad'
+            scad_render_to_file(model, filepath=filename, file_header='$fn = 100;')
+            print(f"Model generated successfully: {filename}")
+
+        # True random
+        rng=np.random.default_rng()
+        seed = rng.integers(0, 1000000)
+        # choose between kinds
+
+        kinds = ['central_island', 'decentralized']
+        kind = rng.choice(kinds)
+        num_control_points = rng.integers(10, 100)
+
+        # save params for reproducibility
+        with open('paysage_random.txt', 'w') as f:
+            f.write(f"seed: {seed}\n")
+            f.write(f"num_control_points: {num_control_points}\n")
+            f.write(f"kind: {kind}\n")
+        scad_render_to_file(generate_model(seed=seed), filepath='paysage_random.scad', file_header='$fn = 100;')
         print("Model generated successfully!")
     except Exception as e:
         print(f"Error generating model: {str(e)}")
