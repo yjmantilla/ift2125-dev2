@@ -343,5 +343,5 @@ def generate_model(seed=42):
     return model
 
 if __name__ == '__main__':
-    scad_render_to_file(generate_model(seed=0), filepath='terrain_model.scad', file_header='$fn = 100;')
+    scad_render_to_file(generate_model(seed=42), filepath='terrain_model.scad', file_header='$fn = 100;')
     print("Model generated successfully!")
