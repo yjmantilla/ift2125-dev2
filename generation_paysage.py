@@ -264,7 +264,7 @@ def gdatav4(x, y, v, xq, yq):
 
 #####################################################################
 
-def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit, text_mask=None):
+def create_terrain_from_heightmap(heightmap, waterfall_mask, grid_size, height_limit, text_mask=None):
     """Convert height map to OpenSCAD polyhedron."""
     terrain_parts = []
     
@@ -274,7 +274,7 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
     # Calculate cell size
     cell_size = grid_size / (cols - 1)
     
-    river_depth = 0.5  # How deep to carve the river
+    waterfall_depth = 0.5  # How deep to carve the waterfall
     #make everything not empty at least 0.1mm high
     ocean_level = 0.02  # Ocean level (height of the ocean base)
     min_level = 1.2*ocean_level  # Minimum height for the terrain (to avoid floating parts)
@@ -291,11 +291,11 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
             
             z1 = heightmap[i, j] * height_limit
 
-            # Check if this is part of the river
-            is_river = river_mask[i, j] > 0
+            # Check if this is part of the waterfall
+            is_waterfall = waterfall_mask[i, j] > 0
 
-            # Alternative. Check if this is part of the river
-            #is_river = river_mask[i, j] > 0.5 and z1 > 0  # Only consider as river if above water level
+            # Alternative. Check if this is part of the waterfall
+            #is_waterfall = waterfall_mask[i, j] > 0.5 and z1 > 0  # Only consider as waterfall if above water level
 
             # Check if this cell is masked by text
             is_text = text_mask is not None and text_mask[i, j] > 0.5
@@ -318,19 +318,19 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
                         )
                     )
                 )
-            elif is_river:
-                # For river parts, create a blue cube slightly above the terrain
-                river_height = max(max(0.1, z1 - river_depth),ocean_level)  # River is slightly below terrain but above ocean level
+            elif is_waterfall:
+                # For waterfall parts, create a blue cube slightly above the terrain
+                waterfall_height = max(max(0.1, z1 - waterfall_depth),ocean_level)  # waterfall is slightly below terrain but above ocean level
                 
                 terrain_parts.append(
                     translate([x1, y1, 0])(
-                        color([0, 0.4, 0.8])(  # Blue for river
-                            cube([cell_size, cell_size, river_height])
+                        color([0, 0.4, 0.8])(  # Blue for waterfall
+                            cube([cell_size, cell_size, waterfall_height])
                         )
                     )
                 )
             else:
-                # Regular terrain (non-river)
+                # Regular terrain (non-waterfall)
                 # Color based on height (green to brown to white)
                 h_ratio = z1 / height_limit
                 if h_ratio < 0.3:  # Low elevation: greenish
@@ -348,7 +348,7 @@ def create_terrain_from_heightmap(heightmap, river_mask, grid_size, height_limit
                     )
                 )
     
-    # Combine terrain and river parts
+    # Combine terrain and waterfall parts
     all_parts = terrain_parts
     return union()(*all_parts)
 
@@ -419,15 +419,15 @@ def add_perlin_detail(height_map, octaves=3, persistence=0.5, scale=2, seed=None
     
     return result
 
-def generate_river_path(height_map):
-    """Generate a river path from the highest point to sea level using gradient descent."""
+def generate_waterfall_path(height_map):
+    """Generate a waterfall path from the highest point to sea level using gradient descent."""
     start_i, start_j = np.unravel_index(np.argmax(height_map), height_map.shape)
     
     rows, cols = height_map.shape
-    river_mask = np.zeros_like(height_map)
-    river_width = 1
+    waterfall_mask = np.zeros_like(height_map)
+    waterfall_width = 1
     current_i, current_j = start_i, start_j
-    river_mask[current_i, current_j] = 1
+    waterfall_mask[current_i, current_j] = 1
     max_steps = rows * cols
     step_count = 0
     
@@ -454,18 +454,18 @@ def generate_river_path(height_map):
         
         current_i, current_j = next_i, next_j
         
-        for di in range(-river_width, river_width + 1):
-            for dj in range(-river_width, river_width + 1):
+        for di in range(-waterfall_width, waterfall_width + 1):
+            for dj in range(-waterfall_width, waterfall_width + 1):
                 ri, rj = current_i + di, current_j + dj
                 if 0 <= ri < rows and 0 <= rj < cols:
-                    river_mask[ri, rj] = 1
+                    waterfall_mask[ri, rj] = 1
         
         step_count += 1
     
-    river_mask = gaussian_filter(river_mask, sigma=0.3)
-    river_mask = (river_mask > 0.3).astype(float)
+    waterfall_mask = gaussian_filter(waterfall_mask, sigma=0.3)
+    waterfall_mask = (waterfall_mask > 0.3).astype(float)
     
-    return river_mask
+    return waterfall_mask
 
 def generate_model(seed=42):
     rng = np.random.default_rng(seed)
@@ -492,18 +492,18 @@ def generate_model(seed=42):
     # Normalize height map
     height_map = (height_map - height_map.min()) / (height_map.max() - height_map.min())
     
-    # Generate river path
-    river_mask = generate_river_path(height_map)
+    # Generate waterfall path
+    waterfall_mask = generate_waterfall_path(height_map)
     
-    # Create the terrain model with river
-    land_with_river = create_terrain_from_heightmap(height_map, river_mask, GRID_SIZE, HEIGHT_LIMIT)
+    # Create the terrain model with waterfall
+    land_with_waterfall = create_terrain_from_heightmap(height_map, waterfall_mask, GRID_SIZE, HEIGHT_LIMIT)
     
     
     # differences are really slow... and unions create kind of a shading issue in openscad
     # so we generate a single solid based on heightmap and masks
 
     # Combine everything
-    model = land_with_river
+    model = land_with_waterfall
 
     
     return model
@@ -511,6 +511,6 @@ def generate_model(seed=42):
 if __name__ == '__main__':
     try:
         scad_render_to_file(generate_model(seed=137), filepath='terrain_model.scad', file_header='$fn = 100;')
-        print("Model generated successfully with river!")
+        print("Model generated successfully!")
     except Exception as e:
         print(f"Error generating model: {str(e)}")
