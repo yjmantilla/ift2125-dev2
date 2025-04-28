@@ -87,13 +87,20 @@ def hybrid_sort(A, d, f, threshold=24):
         hybrid_sort(A, m + 1, f, threshold)
         merge(A, d, m, f)
 
-### This part of the code is for my own testing and debugging purposes.
+### The next part of the code is for my own testing and debugging purposes.
 ### also includes the code to determine the best threshold
+### I took the liberty to use helping libraries to plot the results and analyze the data that I got from the experiments.
+### Note these libraries are NOT used for the actual sorting algorithms.
+### IF YOU CHANGE DEBUG TO TRUE, YOU MUST HAVE THE LIBRARIES INSTALLED: matplotlib, pandas, etc.
 
 DEBUG = False
 if DEBUG:
 
     ## We will use PI digits to test the sorting algorithms.
+    ## We will use the Chudnovsky algorithm to compute the digits of PI.
+    ## This algorithm was suggested by Generative AI.
+    ## Details of the prompt and reply are in the reported pdf.
+
     from decimal import Decimal, getcontext
 
     # Compute pi using the Chudnovsky algorithm
@@ -157,6 +164,8 @@ if DEBUG:
     range_digits = sorted(range_digits)
     print("range_digits : ", range_digits)
 
+    ## Experiment 1: Varying the input size and measuring the time taken by insertion sort and merge sort in isolation.
+
     def do_tests(range_digits, N_TESTS, thr=None):
         insertion_times = {}
         mergesort_times = {}
@@ -197,16 +206,19 @@ if DEBUG:
             return insertion_times, mergesort_times
         else:
             return mergesort_times
-
+    ####################################################################################################
     # Plotting the results
-    # use boxplots to show the distribution of the times per order of magnitude
+    # I took the liberty to use helping libraries to plot the results and analyze the data.
+    # Note these libraries are not used for the actual sorting algorithms.
+    ####################################################################################################
+
     import matplotlib.pyplot as plt
-    import numpy as np
-    import seaborn as sns
     import pandas as pd
     import os
+
     if not os.path.exists("sorting_time_comparison.png"):
-        insertion_times, mergesort_times = do_tests(range_digits, N_TESTS)
+        insertion_times, mergesort_times = do_tests(range_digits, N_TESTS, thr=None)
+        # thr None means we will evaluate insertion sort and merge sort separately
 
         df_insertion = pd.DataFrame(insertion_times).T
         df_mergesort = pd.DataFrame(mergesort_times).T
@@ -271,8 +283,8 @@ if DEBUG:
         plt.show()
     plot(df_insertion,df_mergesort,filename="sorting_time_comparison.png", log=True)
 
-    # somewhere between 10 and 100 is the best threshold for insertion sort
-    # explore this range more closely
+    # Somewhere between 10 and 100 is the best threshold for insertion sort
+    # We will explore this range more closely
 
     range_digits = range(10, 501, 5)
 
@@ -290,9 +302,10 @@ if DEBUG:
     # Plotting the results
     plot(df_insertion_close,df_mergesort_close,filename="sorting_time_comparison_close.png", log=False,figsize=(14, 6))
 
-    # Based on the plots, we chose 120 as the threshold for insertion sort.
+    # Based on these plots, we would chose 120 as the threshold for insertion sort.
+    # But this was later contested by the following experiment (Experiment 2).
 
-    # Verify with varying the threshold
+    # Experiment 2: Varying the threshold inside the hybrid sort across a range of input sizes.
     thresholds = range(0, 201, 4)
     data = []
     N_TESTS=10
@@ -316,11 +329,44 @@ if DEBUG:
     # make each of the experiment_cols a different row
     df_thresholds = pd.melt(df_thresholds, id_vars=['threshold', 'n_digits'], value_vars=experiment_cols, var_name='experiment', value_name='time')
     df_thresholds['experiment'] = df_thresholds['experiment'].astype(int)
-    # drop where n_digits <= threshold
-    #df_thresholds = df_thresholds[df_thresholds['n_digits'] > df_thresholds['threshold']]
-    # calculate mean and std across ignoring experiment and across n_digits
+    # save
+    df_thresholds.to_csv("mergesort_times_thresholds.csv")
+    
+    # get mean and std across experiments of samples sharing the same threshold and n_digits
+    df_mean_std = df_thresholds.groupby(['threshold', 'n_digits']).agg({'time': ['mean', 'std']}).reset_index()
+    df_mean_std.columns = ['threshold', 'n_digits', 'mean_time', 'std_time']
+    # save
+    df_mean_std.to_csv("mergesort_times_mean_std.csv")
+
+    df_mean_std['threshold'].unique()
+    df_mean_std['n_digits'].unique()
+    
+    
+    # Table for report (must be small enough to fit on a page)
+    # Define the thresholds and n_digits you want to report
+    report_thresholds = [0, 24, 64, 120, 160, 200]
+    report_n_digits = [10, 50, 100, 150, 200]
+    # Filter the dataframe
+    df_filtered = df_mean_std[
+        (df_mean_std['threshold'].isin(report_thresholds)) & 
+        (df_mean_std['n_digits'].isin(report_n_digits))
+    ]
+    # Pivot tables for means and standard deviations
+    mean_table = df_filtered.pivot(index='n_digits', columns='threshold', values='mean_time')
+    std_table = df_filtered.pivot(index='n_digits', columns='threshold', values='std_time')
+    # Sort rows and columns nicely
+    mean_table = mean_table.sort_index().sort_index(axis=1)
+    std_table = std_table.sort_index().sort_index(axis=1)
+
+    # Save to CSV
+    mean_table.to_csv("mean_table.csv")
+    std_table.to_csv("std_table.csv")
+
+    # Calculate mean and std across ignoring experiment and across n_digits
     df_thresholds_mean = df_thresholds.groupby(['threshold']).agg({'time': ['mean', 'std']}).reset_index()
     df_thresholds_mean.columns = ['threshold', 'mean_time', 'std_time']
+    #save
+    df_thresholds_mean.to_csv("mergesort_times_mean_thresholds.csv")
 
     # plot the mean and std with points with error bars
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -337,7 +383,10 @@ if DEBUG:
     ax.grid(True, which="both", ls="--", linewidth=0.5)
     plt.tight_layout()
     fig.savefig("threshold_vs_time.png", dpi=300, bbox_inches='tight')
+    fig.savefig("threshold_vs_time.pdf", dpi=300, bbox_inches='tight')
     plt.show()
+
+    # This plot suggest using a threshold of 24. This is the default value in the code.
 
 # Fonction à compléter / function to complete:
 def solve(array) :
