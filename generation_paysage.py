@@ -13,7 +13,7 @@ MATRIX_SIZE = 50  # Height map resolution (30-100)
 def generate_initials(initials):
     txt = linear_extrude(height=1)(text(initials, size=5))
     mirrored_txt = mirror([0,1,0])(txt)  # Mirror across Y axis to correct
-    return translate([5, 5, -1])(mirrored_txt)
+    return translate([3, 6, 0])(mirrored_txt)
 
 ###### Gaussian Filter ###############################
 
@@ -503,13 +503,13 @@ def generate_model(seed=42):
     land_with_river = create_terrain_from_heightmap(height_map, river_mask, GRID_SIZE, HEIGHT_LIMIT)
     
     # Create the ocean base
-    ocean = create_ocean_base(GRID_SIZE)
+    ocean = create_ocean_base(GRID_SIZE, thickness=2)
     
     # Combine everything
     model = union()(
         ocean,
         land_with_river,
-        generate_initials('YJMR IFT2125')
+        generate_initials('YJMR IFT2125'),
     )
     
     return model
