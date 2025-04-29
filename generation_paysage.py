@@ -332,7 +332,7 @@ def create_paysage_from_heightmap(heightmap, waterfall_mask, river_mask,grid_siz
                 )
             elif is_river:
                 # For river parts, create a blue cube slightly above the terrain
-                river_height = max(max(0.1, z1 - waterfall_depth),ocean_level)
+                river_height = max(max(0.1, z1 - waterfall_depth),ocean_level)*height_limit
                 terrain_parts.append(
                     translate([x1, y1, 0])(
                         color([0, 0.4, 0.8])(  # Blue for river
@@ -530,7 +530,6 @@ def generate_waterfall_path(height_map):
 def generate_river_path(height_map):
     # use just a random spline between two edges
 
-
     # Similar to generate_waterfall_path but for rivers
     # we start from one edge to any other edge
     # using a random walk
@@ -549,82 +548,50 @@ def generate_river_path(height_map):
     end_point = np.random.uniform(0, 1)
 
     # Calculate the coordinates of the starting point based on the edge
-    coordinates_start = start_point * (rows if start_edge in ['top', 'bottom'] else cols)
-    coordinates_end = end_point * (rows if final_edge in ['top', 'bottom'] else cols)
+    if start_edge in ['top', 'bottom']:
+        start_j = int(start_point * (cols-1))
+        start_i = 0 if start_edge == 'top' else rows-1
+    else:  # left or right
+        start_i = int(start_point * (rows-1))
+        start_j = 0 if start_edge == 'left' else cols-1
 
-    if start_edge == 'top' or start_edge == 'bottom':
-        start_i = int(coordinates_start)
-        start_j = rows - 1 if start_edge == 'bottom' else 0
-        #np.random.randint(0, cols)
-    elif start_edge == 'left' or start_edge == 'right':
-        start_i = int(coordinates_start)
-        start_j = cols - 1 if start_edge == 'right' else 0
-        #np.random.randint(0, rows)
-    
-    #make a random spline between the start and end points
-    # and then we smooth it with a gaussian filter
-    # and then we create a mask for the river
+    if final_edge in ['top', 'bottom']:
+        end_j = int(end_point * (cols-1))
+        end_i = 0 if final_edge == 'top' else rows-1
+    else:  # left or right
+        end_i = int(end_point * (rows-1))
+        end_j = 0 if final_edge == 'left' else cols-1
 
+    # Initialize river spline as a zero mask
     random_spline = np.zeros((rows, cols))
 
+    # Number of intermediate control points (for the random walk)
+    num_points = 20
+    points_i = np.linspace(start_i, end_i, num_points)
+    points_j = np.linspace(start_j, end_j, num_points)
 
+    # Add random noise to intermediate points to create meandering
+    noise_strength = 0.2  # control randomness
+    points_i += np.random.normal(0, noise_strength * rows / num_points, size=num_points)
+    points_j += np.random.normal(0, noise_strength * cols / num_points, size=num_points)
 
-    if start_edge == 'top':
-        start_i = 0
-        start_j = np.random.randint(0, cols)
-    elif start_edge == 'bottom':
-        start_i = rows - 1
-        start_j = np.random.randint(0, cols)
-    elif start_edge == 'left':
-        start_i = np.random.randint(0, rows)
-        start_j = 0
-    else:  # 'right'
-        start_i = np.random.randint(0, rows)
-        start_j = cols - 1
+    # Clip to stay inside the map
+    points_i = np.clip(points_i, 0, rows-1)
+    points_j = np.clip(points_j, 0, cols-1)
 
-    # Initialize the river path
-    river_mask = np.zeros_like(height_map)
-    river_width = 2
-    current_i, current_j = start_i, start_j
-    river_mask[current_i, current_j] = 1
-    
-    reach_edge = False
+    # Draw the path roughly (assign 1 at the closest integer coordinates)
+    for i, j in zip(points_i, points_j):
+        random_spline[int(i), int(j)] = 1
 
-    max_steps = rows * cols
+    # Smooth the random spline to make a nice river
+    smoothed_spline = gaussian_filter(random_spline, sigma=2.0)
 
-    step_count = 0
+    # Threshold to create river mask
+    river_mask = (smoothed_spline > 0.1).astype(float)
 
-    
-    j_biased_choices = [-1, 0, 1]
-    i_biased_choices = [-1, 0, 1]
-    if start_edge == 'top':
-        j_biased_choices.remove(-1)
-    elif start_edge == 'bottom':
-        j_biased_choices.remove(1)
-    elif start_edge == 'left':
-        i_biased_choices.remove(-1)
-    else:  # 'right'
-        i_biased_choices.remove(1)
-    while not reach_edge and step_count < max_steps:
-        # Random walk biased towards the final edge
-        current_i = current_i + np.random.choice(i_biased_choices)
-        current_j = current_j + np.random.choice(j_biased_choices)
-        # check bounds
-        if current_i < 0 or current_i >= rows or current_j < 0 or current_j >= cols:
-            # If out of bounds, revert to previous position
-            current_i = np.clip(current_i, 0, rows - 1)
-            current_j = np.clip(current_j, 0, cols - 1)
-        river_mask[current_i, current_j] = 1
-        # Check if we reached the final
-        if final_edge == 'top' and current_i == 0:
-            reach_edge = True
-        elif final_edge == 'bottom' and current_i == rows - 1:
-            reach_edge = True
-        elif final_edge == 'left' and current_j == 0:
-            reach_edge = True
-        elif final_edge == 'right' and current_j == cols - 1:
-            reach_edge = True
     return river_mask
+
+
 def generate_model(seed=42,num_control_points=60,kind='central_island'):
     rng = np.random.default_rng(seed)
     
@@ -650,9 +617,7 @@ def generate_model(seed=42,num_control_points=60,kind='central_island'):
     # Normalize height map
     if kind == 'central_island':
         height_map = (height_map - height_map.min()) / (height_map.max() - height_map.min())
-        river_mask = np.zeros_like(height_map)  # No river for central island
-    else:
-        river_mask = generate_river_path(height_map)
+    river_mask = generate_river_path(height_map)
 
         
     # Generate waterfall path
