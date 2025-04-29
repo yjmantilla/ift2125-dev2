@@ -562,8 +562,7 @@ def generate_model(seed=42,num_control_points=60,kind='central_island'):
     return model
 
 if __name__ == '__main__':
-    if True:
-#    try:
+    try:
         params=[
             (42, 60, 'central_island'),
             (137, 15, 'central_island'),
@@ -595,6 +594,5 @@ if __name__ == '__main__':
             f.write(f"kind: {kind}\n")
         scad_render_to_file(generate_model(seed=seed), filepath='paysage_random.scad', file_header='$fn = 100;')
         print("Model generated successfully!")
-#    except Exception as e:
-    else:
+    except Exception as e:
         print(f"Error generating model: {str(e)}")
