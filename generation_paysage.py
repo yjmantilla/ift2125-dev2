@@ -1,3 +1,8 @@
+# Yorguin José Mantilla Ramos
+# Matricule 20253616
+
+# install SolidPython https://github.com/SolidCode/SolidPython (pip install solidpython)
+
 from solid import *
 from solid.utils import *
 
