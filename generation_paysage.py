@@ -264,7 +264,7 @@ def gdatav4(x, y, v, xq, yq):
 
 #####################################################################
 
-def create_paysage_from_heightmap(heightmap, waterfall_mask, grid_size, height_limit, text_mask=None):
+def create_paysage_from_heightmap(heightmap, waterfall_mask, river_mask,grid_size, height_limit, text_mask=None):
     """Convert height map to OpenSCAD polyhedron."""
     terrain_parts = []
     
@@ -293,6 +293,7 @@ def create_paysage_from_heightmap(heightmap, waterfall_mask, grid_size, height_l
 
             # Check if this is part of the waterfall
             is_waterfall = waterfall_mask[i, j] > 0
+            is_river = river_mask[i, j] > 0
 
             # Alternative. Check if this is part of the waterfall
             #is_waterfall = waterfall_mask[i, j] > 0.5 and z1 > 0  # Only consider as waterfall if above water level
@@ -326,6 +327,16 @@ def create_paysage_from_heightmap(heightmap, waterfall_mask, grid_size, height_l
                     translate([x1, y1, 0])(
                         color([0, 0.4, 0.8])(  # Blue for waterfall
                             cube([cell_size, cell_size, waterfall_height])
+                        )
+                    )
+                )
+            elif is_river:
+                # For river parts, create a blue cube slightly above the terrain
+                river_height = max(max(0.1, z1 - waterfall_depth),ocean_level)
+                terrain_parts.append(
+                    translate([x1, y1, 0])(
+                        color([0, 0.4, 0.8])(  # Blue for river
+                            cube([cell_size, cell_size, river_height])
                         )
                     )
                 )
@@ -383,29 +394,53 @@ def generate_control_points(num_points, grid_size, rng,kind='central_island'):
                 # Outer points are mostly underwater
                 v[i] = rng.uniform(-0.2, 0.1)
     if kind == 'decentralized':
-        # place centers of small islands randomly in the grid
-        num_islands = rng.integers(2, 3)
-        size_islands = rng.uniform(0.001, 0.003)  # Size of islands relative to grid size
+        num_islands = 10 # More flexible number of islands
 
+        centers = []
+        attempts = 0
+        max_attempts = 1000  # Safety to avoid infinite loops
+
+        min_dist = grid_size / (num_islands)  # Minimum distance between islands
+
+        while len(centers) < num_islands and attempts < max_attempts:
+            candidate_x = rng.uniform(0.1 * grid_size, 0.9 * grid_size)
+            candidate_y = rng.uniform(0.1 * grid_size, 0.9 * grid_size)
+            candidate = (candidate_x, candidate_y)
+
+            # Check if candidate is far enough from all previous centers
+            if all(np.linalg.norm(np.array(candidate) - np.array(c)) >= min_dist for c in centers):
+                centers.append(candidate)
+
+            attempts += 1
+        
+        # just randomize the centers
+
+        # for i in range(num_islands):
+        #     center_x = rng.uniform(0.1 * grid_size, 0.9 * grid_size)
+        #     center_y = rng.uniform(0.1 * grid_size, 0.9 * grid_size)
+        #     centers.append((center_x, center_y))
+
+        size_islands = 0.8 #rng.uniform(0.5, 0.8)  # Size of islands relative to grid size
         for i in range(num_islands):
-            # Random center for the island
-            center_x = rng.uniform(0, grid_size)
-            center_y = rng.uniform(0, grid_size)
-
-            # Random height for the island
-            center_height = rng.uniform(0.2, 0.6)
+            center_x, center_y = centers[i]
+            # # Randomize the center slightly
+            # center_x += rng.uniform(-size_islands*grid_size/4, size_islands*grid_size/4)
+            # center_y += rng.uniform(-size_islands*grid_size/4, size_islands*grid_size/4)
             
+            # Random height for the island
+            center_height = rng.uniform(0.6, 0.8)
             # Apply same logic as above but centered around the random point
             for j in range(num_points):
                 dist = np.sqrt((x[j] - center_x)**2 + (y[j] - center_y)**2)
-                dist_ratio = dist / (size_islands*grid_size/2)
+                dist_ratio = dist / (size_islands*grid_size)
                 if dist_ratio < 0.5 and rng.random() < 0.8:
                     # Central island points
-                    v[j] = center_height * rng.uniform(0.1, 0.2)
+                    v[j] = center_height * rng.uniform(0.5, 0.7)
+                elif dist_ratio < 0.7 and rng.random() < 0.4:
+                    v[j] = center_height * rng.uniform(0.2, 0.4)
                 else:
                     # Outer points are mostly underwater
-                    v[j] = rng.uniform(-0.2, 0.1)
-    
+                    v[j] = rng.uniform(-0.2, 0)
     return x, y, v
 
 def add_perlin_detail(height_map, octaves=3, persistence=0.5, scale=2, seed=None):
@@ -492,6 +527,104 @@ def generate_waterfall_path(height_map):
     
     return waterfall_mask
 
+def generate_river_path(height_map):
+    # use just a random spline between two edges
+
+
+    # Similar to generate_waterfall_path but for rivers
+    # we start from one edge to any other edge
+    # using a random walk
+    # and then we smooth the path with a gaussian filter
+    # and then we create a mask for the river
+
+    # Start from a random edge
+    rows, cols = height_map.shape
+    start_edge = np.random.choice(['top', 'bottom', 'left', 'right'])
+    final_options = ['top', 'bottom', 'left', 'right']
+    final_options.remove(start_edge)
+    final_edge = np.random.choice(final_options)
+
+    # Randomly choose a starting point on the start edge and an end point on the final edge
+    start_point = np.random.uniform(0, 1)
+    end_point = np.random.uniform(0, 1)
+
+    # Calculate the coordinates of the starting point based on the edge
+    coordinates_start = start_point * (rows if start_edge in ['top', 'bottom'] else cols)
+    coordinates_end = end_point * (rows if final_edge in ['top', 'bottom'] else cols)
+
+    if start_edge == 'top' or start_edge == 'bottom':
+        start_i = int(coordinates_start)
+        start_j = rows - 1 if start_edge == 'bottom' else 0
+        #np.random.randint(0, cols)
+    elif start_edge == 'left' or start_edge == 'right':
+        start_i = int(coordinates_start)
+        start_j = cols - 1 if start_edge == 'right' else 0
+        #np.random.randint(0, rows)
+    
+    #make a random spline between the start and end points
+    # and then we smooth it with a gaussian filter
+    # and then we create a mask for the river
+
+    random_spline = np.zeros((rows, cols))
+
+
+
+    if start_edge == 'top':
+        start_i = 0
+        start_j = np.random.randint(0, cols)
+    elif start_edge == 'bottom':
+        start_i = rows - 1
+        start_j = np.random.randint(0, cols)
+    elif start_edge == 'left':
+        start_i = np.random.randint(0, rows)
+        start_j = 0
+    else:  # 'right'
+        start_i = np.random.randint(0, rows)
+        start_j = cols - 1
+
+    # Initialize the river path
+    river_mask = np.zeros_like(height_map)
+    river_width = 2
+    current_i, current_j = start_i, start_j
+    river_mask[current_i, current_j] = 1
+    
+    reach_edge = False
+
+    max_steps = rows * cols
+
+    step_count = 0
+
+    
+    j_biased_choices = [-1, 0, 1]
+    i_biased_choices = [-1, 0, 1]
+    if start_edge == 'top':
+        j_biased_choices.remove(-1)
+    elif start_edge == 'bottom':
+        j_biased_choices.remove(1)
+    elif start_edge == 'left':
+        i_biased_choices.remove(-1)
+    else:  # 'right'
+        i_biased_choices.remove(1)
+    while not reach_edge and step_count < max_steps:
+        # Random walk biased towards the final edge
+        current_i = current_i + np.random.choice(i_biased_choices)
+        current_j = current_j + np.random.choice(j_biased_choices)
+        # check bounds
+        if current_i < 0 or current_i >= rows or current_j < 0 or current_j >= cols:
+            # If out of bounds, revert to previous position
+            current_i = np.clip(current_i, 0, rows - 1)
+            current_j = np.clip(current_j, 0, cols - 1)
+        river_mask[current_i, current_j] = 1
+        # Check if we reached the final
+        if final_edge == 'top' and current_i == 0:
+            reach_edge = True
+        elif final_edge == 'bottom' and current_i == rows - 1:
+            reach_edge = True
+        elif final_edge == 'left' and current_j == 0:
+            reach_edge = True
+        elif final_edge == 'right' and current_j == cols - 1:
+            reach_edge = True
+    return river_mask
 def generate_model(seed=42,num_control_points=60,kind='central_island'):
     rng = np.random.default_rng(seed)
     
@@ -515,13 +648,18 @@ def generate_model(seed=42,num_control_points=60,kind='central_island'):
     height_map = add_perlin_detail(height_map, seed=seed)
     
     # Normalize height map
-    height_map = (height_map - height_map.min()) / (height_map.max() - height_map.min())
-    
+    if kind == 'central_island':
+        height_map = (height_map - height_map.min()) / (height_map.max() - height_map.min())
+        river_mask = np.zeros_like(height_map)  # No river for central island
+    else:
+        river_mask = generate_river_path(height_map)
+
+        
     # Generate waterfall path
     waterfall_mask = generate_waterfall_path(height_map)
     
     # Create the terrain model with waterfall
-    paysage = create_paysage_from_heightmap(height_map, waterfall_mask, GRID_SIZE, HEIGHT_LIMIT)
+    paysage = create_paysage_from_heightmap(height_map, waterfall_mask,river_mask, GRID_SIZE, HEIGHT_LIMIT)
     
     
     # differences are really slow... and unions create kind of a shading issue in openscad, i guess because
@@ -535,7 +673,8 @@ def generate_model(seed=42,num_control_points=60,kind='central_island'):
     return model
 
 if __name__ == '__main__':
-    try:
+    if True:
+#    try:
         params=[
             (42, 60, 'central_island'),
             (137, 15, 'central_island'),
@@ -556,7 +695,7 @@ if __name__ == '__main__':
         seed = rng.integers(0, 1000000)
         # choose between kinds
 
-        kinds = ['central_island', 'decentralized']
+        kinds = ['decentralized']
         kind = rng.choice(kinds)
         num_control_points = rng.integers(10, 100)
 
@@ -567,5 +706,6 @@ if __name__ == '__main__':
             f.write(f"kind: {kind}\n")
         scad_render_to_file(generate_model(seed=seed), filepath='paysage_random.scad', file_header='$fn = 100;')
         print("Model generated successfully!")
-    except Exception as e:
+#    except Exception as e:
+    else:
         print(f"Error generating model: {str(e)}")
