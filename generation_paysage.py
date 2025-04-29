@@ -264,7 +264,7 @@ def gdatav4(x, y, v, xq, yq):
 
 #####################################################################
 
-def create_paysage_from_heightmap(heightmap, waterfall_mask, river_mask,grid_size, height_limit, text_mask=None):
+def create_paysage_from_heightmap(heightmap, waterfall_mask,grid_size, height_limit, text_mask=None):
     """Convert height map to OpenSCAD polyhedron."""
     terrain_parts = []
     
@@ -293,7 +293,6 @@ def create_paysage_from_heightmap(heightmap, waterfall_mask, river_mask,grid_siz
 
             # Check if this is part of the waterfall
             is_waterfall = waterfall_mask[i, j] > 0
-            is_river = river_mask[i, j] > 0
 
             # Alternative. Check if this is part of the waterfall
             #is_waterfall = waterfall_mask[i, j] > 0.5 and z1 > 0  # Only consider as waterfall if above water level
@@ -327,16 +326,6 @@ def create_paysage_from_heightmap(heightmap, waterfall_mask, river_mask,grid_siz
                     translate([x1, y1, 0])(
                         color([0, 0.4, 0.8])(  # Blue for waterfall
                             cube([cell_size, cell_size, waterfall_height])
-                        )
-                    )
-                )
-            elif is_river:
-                # For river parts, create a blue cube slightly above the terrain
-                river_height = max(max(0.1, z1 - waterfall_depth),ocean_level)*height_limit
-                terrain_parts.append(
-                    translate([x1, y1, 0])(
-                        color([0, 0.4, 0.8])(  # Blue for river
-                            cube([cell_size, cell_size, river_height])
                         )
                     )
                 )
@@ -527,70 +516,6 @@ def generate_waterfall_path(height_map):
     
     return waterfall_mask
 
-def generate_river_path(height_map):
-    # use just a random spline between two edges
-
-    # Similar to generate_waterfall_path but for rivers
-    # we start from one edge to any other edge
-    # using a random walk
-    # and then we smooth the path with a gaussian filter
-    # and then we create a mask for the river
-
-    # Start from a random edge
-    rows, cols = height_map.shape
-    start_edge = np.random.choice(['top', 'bottom', 'left', 'right'])
-    final_options = ['top', 'bottom', 'left', 'right']
-    final_options.remove(start_edge)
-    final_edge = np.random.choice(final_options)
-
-    # Randomly choose a starting point on the start edge and an end point on the final edge
-    start_point = np.random.uniform(0, 1)
-    end_point = np.random.uniform(0, 1)
-
-    # Calculate the coordinates of the starting point based on the edge
-    if start_edge in ['top', 'bottom']:
-        start_j = int(start_point * (cols-1))
-        start_i = 0 if start_edge == 'top' else rows-1
-    else:  # left or right
-        start_i = int(start_point * (rows-1))
-        start_j = 0 if start_edge == 'left' else cols-1
-
-    if final_edge in ['top', 'bottom']:
-        end_j = int(end_point * (cols-1))
-        end_i = 0 if final_edge == 'top' else rows-1
-    else:  # left or right
-        end_i = int(end_point * (rows-1))
-        end_j = 0 if final_edge == 'left' else cols-1
-
-    # Initialize river spline as a zero mask
-    random_spline = np.zeros((rows, cols))
-
-    # Number of intermediate control points (for the random walk)
-    num_points = 20
-    points_i = np.linspace(start_i, end_i, num_points)
-    points_j = np.linspace(start_j, end_j, num_points)
-
-    # Add random noise to intermediate points to create meandering
-    noise_strength = 0.2  # control randomness
-    points_i += np.random.normal(0, noise_strength * rows / num_points, size=num_points)
-    points_j += np.random.normal(0, noise_strength * cols / num_points, size=num_points)
-
-    # Clip to stay inside the map
-    points_i = np.clip(points_i, 0, rows-1)
-    points_j = np.clip(points_j, 0, cols-1)
-
-    # Draw the path roughly (assign 1 at the closest integer coordinates)
-    for i, j in zip(points_i, points_j):
-        random_spline[int(i), int(j)] = 1
-
-    # Smooth the random spline to make a nice river
-    smoothed_spline = gaussian_filter(random_spline, sigma=2.0)
-
-    # Threshold to create river mask
-    river_mask = (smoothed_spline > 0.1).astype(float)
-
-    return river_mask
-
 
 def generate_model(seed=42,num_control_points=60,kind='central_island'):
     rng = np.random.default_rng(seed)
@@ -617,14 +542,13 @@ def generate_model(seed=42,num_control_points=60,kind='central_island'):
     # Normalize height map
     if kind == 'central_island':
         height_map = (height_map - height_map.min()) / (height_map.max() - height_map.min())
-    river_mask = generate_river_path(height_map)
 
         
     # Generate waterfall path
     waterfall_mask = generate_waterfall_path(height_map)
     
     # Create the terrain model with waterfall
-    paysage = create_paysage_from_heightmap(height_map, waterfall_mask,river_mask, GRID_SIZE, HEIGHT_LIMIT)
+    paysage = create_paysage_from_heightmap(height_map, waterfall_mask, GRID_SIZE, HEIGHT_LIMIT)
     
     
     # differences are really slow... and unions create kind of a shading issue in openscad, i guess because
