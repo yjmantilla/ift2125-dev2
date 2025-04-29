@@ -7,7 +7,7 @@ import os
 # Parameters
 GRID_SIZE = 80  # How wide the ocean plate is (50mm to 80mm)
 HEIGHT_LIMIT = 40  # Max height in mm
-MATRIX_SIZE = 50  # Height map resolution (30-100)
+MATRIX_SIZE = 70  # Height map resolution (30-100)
 
 def generate_initials(initials):
     txt = linear_extrude(height=0.5)(text(initials, size=5))
@@ -546,7 +546,10 @@ def generate_model(seed=42, num_control_points=60, kind='central_island'):
     # so we generate a single solid based on heightmap and masks
 
     # Combine everything
-    model = paysage
+    model = union()(
+        paysage,
+        generate_initials('YM IFT2125-W25')  # Add initials
+    )
 
     return model
 
@@ -559,7 +562,8 @@ if __name__ == '__main__':
             (42, 60, 'central_island'),
             (137, 15, 'central_island'),
             (42, 60, 'decentralized'),
-            (137, 15, 'decentralized')
+            (137, 15, 'decentralized'),
+            (889860, 61, 'decentralized'),
         ]
         for seed, num_control_points, kind in params:
             # Generate the model with the specified parameters
